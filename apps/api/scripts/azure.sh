@@ -90,7 +90,7 @@ crear() {
     az provider register -n "$proveedor" --wait -o none
   done
 
-  echo "Grupo de recursos $GRUPO en $REGION…"
+  echo "Grupo de recursos ${GRUPO} en ${REGION}…"
   az group create -n "$GRUPO" -l "$REGION" -o none
 
   # Contraseña nueva en cada creación de la app: sólo se guarda dentro de su DATABASE_URL.
@@ -122,7 +122,7 @@ crear() {
   fi
 
   if ! az containerapp env show -n "$ENTORNO" -g "$GRUPO" >/dev/null 2>&1; then
-    echo "Creando el entorno de Container Apps $ENTORNO…"
+    echo "Creando el entorno de Container Apps ${ENTORNO}…"
     az containerapp env create -n "$ENTORNO" -g "$GRUPO" -l "$REGION" -o none
   fi
   local entorno_id
