@@ -30,8 +30,9 @@ type PeticionCon<Body> = Request<Record<string, string>, unknown, Body>;
 function opcionesCookieRefresh(): CookieOptions {
   return {
     httpOnly: true,
-    // En producción la web (Vercel) y la API (Railway) están en dominios
-    // distintos: la cookie necesita SameSite=None sobre HTTPS.
+    // En producción la cookie exige HTTPS. La web de Vercel reenvía /api a
+    // Azure y la cookie es del mismo sitio, pero SameSite=None la mantiene
+    // si se llama a la API desde otro dominio.
     secure: env.esProduccion,
     sameSite: env.esProduccion ? "none" : "lax",
     path: `${API_PREFIX}/auth`,

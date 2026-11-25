@@ -766,3 +766,21 @@ soporte). Dos vistas de soporte pasan a trabajo futuro sin haberse construido.
 | **Ajustes de privacidad (RNF-05)** pasa a trabajo futuro, 4.º en recuperarse. El perfil público sigue visible para quien tenga el enlace, como dice el aviso de privacidad, y la ubicación sale a nivel de departamento | El aviso ya informa de ello y el titular puede pedir la supresión por los canales del aviso. Un interruptor de visibilidad es lo primero que convendría añadir si el sistema se abre a usuarios reales. |
 | El aviso de privacidad sólo nombra los datos de perfil que se registran de verdad (presentación, ubicación, disposición a relocalizarse y horas por semana) | Decía «habilidades y experiencia», que no se pueden registrar. |
 | **Sustituye** a «Soporte mínimo (6)» de «Recorte de alcance», que queda en 4: Mi cuenta, Buscador de talento, Mis postulaciones y Postulaciones recibidas | `docs/decisiones.md` sólo se amplía: la decisión original queda como estaba. |
+
+## Despliegue en Azure y Vercel (2026-11-25)
+
+Tarea 2.13. El plan decía Railway o Render; se despliega en **Azure**, con los 100 USD de
+crédito de Azure for Students, y la web en **Vercel**. Procedimiento y costes en
+`docs/operacion.md`, «Despliegue en Azure».
+
+| Decisión | Por qué |
+| --- | --- |
+| API en **Azure Container Apps** (plan de consumo), **una réplica fija** | El worker y el planificador de la ingesta viven en el proceso de la API: no pueden dormirse ni duplicarse. Container Apps cobra la réplica inactiva a tarifa reducida; App Service con un plan B1 costaría parecido sin escalar a cero nada. |
+| **Redis como contenedor de acompañamiento** en la misma app (`localhost:6379`), sin persistencia y con `noeviction` | Azure Cache for Redis Basic C0 cuesta unos 16 USD/mes, tanto como todo lo demás. Redis sólo guarda cachés, desafíos de vinculación, cuotas y la cola, que se reconstruyen; perderlos en un reinicio es aceptable en el piloto. `noeviction` porque BullMQ lo exige. |
+| Base en **Azure Database for PostgreSQL**, servidor flexible B1ms, con `VECTOR` en `azure.extensions` | Admite pgvector con HNSW (RNF-01) y trae copias automáticas con restauración a un punto de los últimos 7 días (recuperabilidad). Acceso público sólo para servicios de Azure, con TLS obligatorio. |
+| Imagen en **`ghcr.io`**, publicada por GitHub Actions cuando el CI de `main` está en verde | Gratis frente a los 5 USD/mes de Azure Container Registry, y sólo se publica código verificado. El paquete es público, como el repositorio. Azure no se actualiza solo (`azure.sh actualizar`): para eso haría falta una identidad de servicio, que las cuentas de estudiante a menudo no pueden crear. |
+| **Vercel reenvía `/api/*` a Azure** (`vercel.json`) y la web llama a `/api/v1` en su propio dominio | Con dominios distintos, la cookie del refresh token sería de terceros y Safari la bloquea: cada recarga cerraría la sesión. Con el rewrite es del mismo sitio. Además no hay que definir ninguna variable en Vercel: `apps/web/.env.production` se versiona porque no tiene secretos. |
+| `vercel.json` pasa de `apps/web` a la raíz | Vercel lee `vercel.json` del *Root Directory* del proyecto, que es la raíz del monorepo; en `apps/web` se ignoraba. |
+| `TRUST_PROXY=2` | Delante de la API están Vercel y la entrada de Container Apps. **Riesgo conocido:** quien llame directamente al dominio de Azure puede falsear `X-Forwarded-For` y saltarse el límite por IP de las rutas anónimas. Las autenticadas cuentan por usuario. Se acepta para el piloto. |
+| Secretos generados por `azure.sh crear` y guardados **sólo** como secretos de la Container App | Nadie los copia ni los pega: el script los crea con `openssl`, los escribe en un YAML temporal legible sólo por el usuario y lo borra al salir. Las claves de Anthropic y Riot se piden sin eco. |
+| El **seed no se ejecuta** en producción | Sus cuentas tienen una contraseña publicada en el repositorio. La demostración con el seed sigue siendo en local (`npm run demo:reiniciar`). |
