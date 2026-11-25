@@ -20,6 +20,17 @@ export function nombreDeBase(url: string): string {
   return decodeURIComponent(new URL(url).pathname.replace(/^\//, ""));
 }
 
+const SERVIDORES_LOCALES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+/** El servidor de la URL es esta máquina. `false` si la URL no es válida. */
+export function esServidorLocal(url: string): boolean {
+  try {
+    return SERVIDORES_LOCALES.has(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** La base de la URL es una base de pruebas (su nombre termina en `_test`). */
 export function esBaseDePruebas(url: string): boolean {
   return nombreDeBase(url).endsWith(SUFIJO_BASE_PRUEBAS);

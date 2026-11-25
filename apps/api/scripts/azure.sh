@@ -9,6 +9,8 @@
 #   bash apps/api/scripts/azure.sh variable NOMBRE VALOR   # variable sin secreto (CORS_ORIGIN…)
 #   bash apps/api/scripts/azure.sh estado           # URL, revisión activa y salud
 #   bash apps/api/scripts/azure.sh consola          # shell dentro del contenedor de la API
+#   DEMO_CONTRASENA=… bash apps/api/scripts/azure.sh demo   # carga las cuentas de demostración
+#   bash apps/api/scripts/azure.sh pausar | reanudar        # detiene o arranca la app y Postgres
 #
 # Necesita la CLI de Azure con la sesión iniciada (`az login`) o Azure Cloud Shell, y
 # openssl. Nunca imprime los secretos: los genera o los pide sin eco y los guarda sólo como
@@ -276,6 +278,52 @@ estado() {
   fi
 }
 
+# Carga las cuentas de demostración (npm run demo:cargar) desde este equipo. Abre
+# el firewall de Postgres a tu IP pública sólo mientras dura la carga y lo cierra
+# al salir, pase lo que pase. La DATABASE_URL se lee del secreto de la app y no
+# se imprime.
+demo() {
+  requisitos
+  [[ -n "${DEMO_CONTRASENA:-}" ]] || falla "define DEMO_CONTRASENA (12 caracteres o más) en el entorno."
+  command -v npm >/dev/null || falla "falta npm."
+  command -v curl >/dev/null || falla "falta curl."
+
+  POSTGRES_DEMO="$(nombre_postgres)"
+  REGLA_DEMO="demo-cargar-temporal"
+  local ip url
+  ip="$(curl -fsS --max-time 10 https://api.ipify.org)" || falla "no pude averiguar tu IP pública."
+  url="$(az containerapp secret show -n "$APP" -g "$GRUPO" --secret-name database-url --query value -o tsv)"
+  [[ -n "$url" ]] || falla "la app no tiene el secreto database-url."
+
+  echo "Abriendo Postgres a tu IP mientras dura la carga…"
+  trap 'az postgres flexible-server firewall-rule delete -g "$GRUPO" -n "$POSTGRES_DEMO" --rule-name "$REGLA_DEMO" --yes -o none && echo "Regla temporal del firewall borrada."' EXIT
+  az postgres flexible-server firewall-rule create -g "$GRUPO" -n "$POSTGRES_DEMO" \
+    --rule-name "$REGLA_DEMO" --start-ip-address "$ip" --end-ip-address "$ip" -o none
+
+  (cd "$(dirname "$0")/.." && DATABASE_URL="$url" npm run demo:cargar)
+}
+
+# Detiene la app y el servidor de Postgres: deja de cobrarse el cómputo (el
+# almacenamiento de Postgres y sus copias, unos 4 USD/mes, se siguen cobrando).
+# Azure vuelve a arrancar solo un Postgres detenido a los 7 días.
+pausar() {
+  requisitos
+  local postgres
+  postgres="$(nombre_postgres)"
+  az containerapp stop -n "$APP" -g "$GRUPO" -o none
+  az postgres flexible-server stop -g "$GRUPO" -n "$postgres" -o none
+  echo "App y Postgres detenidos. Para volver: azure.sh reanudar."
+}
+
+reanudar() {
+  requisitos
+  local postgres
+  postgres="$(nombre_postgres)"
+  az postgres flexible-server start -g "$GRUPO" -n "$postgres" -o none
+  az containerapp start -n "$APP" -g "$GRUPO" -o none
+  estado
+}
+
 consola() {
   requisitos
   az containerapp exec -n "$APP" -g "$GRUPO" --container api --command sh
@@ -288,8 +336,11 @@ case "${1:-}" in
   variable) variable "${2:-}" "${3:-}" ;;
   estado) estado ;;
   consola) consola ;;
+  demo) demo ;;
+  pausar) pausar ;;
+  reanudar) reanudar ;;
   *)
-    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac

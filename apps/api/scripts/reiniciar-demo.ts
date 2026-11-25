@@ -13,10 +13,9 @@
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { esBaseDePruebas, nombreDeBase } from "./base-pruebas";
+import { esBaseDePruebas, esServidorLocal, nombreDeBase } from "./base-pruebas";
 
 const RAIZ_API = join(__dirname, "..");
-const SERVIDORES_LOCALES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 /** Por qué no se puede reiniciar esta base, o `null` si se puede. */
 export function motivoParaNoReiniciar(
@@ -31,7 +30,7 @@ export function motivoParaNoReiniciar(
   } catch {
     return "DATABASE_URL no es una URL válida";
   }
-  if (!SERVIDORES_LOCALES.has(destino.hostname)) {
+  if (!esServidorLocal(url)) {
     return `el servidor de la base (${destino.hostname}) no es local`;
   }
   if (esBaseDePruebas(url)) {
