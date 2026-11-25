@@ -477,6 +477,8 @@ cada vez que el CI de `main` termina en verde. Azure se maneja con
 | `bash apps/api/scripts/azure.sh variable CORS_ORIGIN https://…` | Cambia una variable sin secreto |
 | `bash apps/api/scripts/azure.sh estado` | URL, revisión activa y `/health` |
 | `bash apps/api/scripts/azure.sh consola` | Shell en el contenedor (alta del administrador, métricas…) |
+| `DEMO_CONTRASENA=… bash apps/api/scripts/azure.sh demo` | Carga las cuentas de demostración con una contraseña propia |
+| `bash apps/api/scripts/azure.sh pausar` / `reanudar` | Detiene o arranca la app y Postgres (crédito) |
 
 La Container App tiene **una sola réplica fija**: el worker y el planificador
 de la ingesta de Riot corren dentro del proceso de la API (`INGESTA_ACTIVA`) y
@@ -492,8 +494,9 @@ anónimos comparten la IP del proxy y el mismo cupo de los límites; si sobra,
 cualquiera puede falsear `X-Forwarded-For` y saltarse el límite por IP.
 
 El primer administrador se da de alta después del despliegue, desde la consola
-del contenedor: ver [docs/operacion.md](docs/operacion.md). El seed nunca se
-ejecuta en producción.
+del contenedor: ver [docs/operacion.md](docs/operacion.md). Los datos de
+demostración se cargan con `azure.sh demo` y una contraseña propia: el seed se
+niega a crear sus cuentas con la contraseña pública en una base que no es local.
 
 ### Web en Vercel
 

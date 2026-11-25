@@ -61,8 +61,60 @@ ve en el portal, **Cost Management**. Al terminar, `az group delete -n proplay-r
    bash apps/api/scripts/azure.sh variable CORS_ORIGIN https://<dominio-final>.vercel.app
    ```
 
-7. **Administrador.** Regístrate en la web y promueve tu cuenta (sección siguiente, «En el
-   servidor desplegado»).
+7. **Datos de demostración.** Ver «Datos de demostración en producción», más abajo.
+8. **Administrador.** Regístrate en la web y promueve tu cuenta (sección «Alta del primer
+   administrador», «En el servidor desplegado»), o usa `admin@proplay.gg` de la demostración.
+
+### Datos de demostración en producción
+
+La evaluación necesita datos: equipos, jugadores verificados, ofertas y postulaciones. El
+seed los crea, pero sus cuentas tienen una contraseña **publicada** en el repositorio, así que
+contra una base que no es local **se niega** a cargarlos sin una contraseña propia:
+
+```bash
+DEMO_CONTRASENA='<12 caracteres o más>' bash apps/api/scripts/azure.sh demo
+```
+
+Abre el firewall de Postgres a tu IP pública, ejecuta `npm run demo:cargar` con la
+`DATABASE_URL` de la app (leída del secreto, sin imprimirla) y borra la regla al terminar,
+aunque falle. Crea las mismas cuentas que en local (`admin@proplay.gg`, `scout@proplay.gg`,
+`equipo@caribeesports.gg`, `jugador1@proplay.gg`…) con la contraseña de `DEMO_CONTRASENA`,
+que no se guarda en ningún archivo: apúntala en tu gestor de contraseñas.
+
+- Es idempotente: repetirlo no duplica nada, y repetirlo con otra contraseña la cambia en
+  todas las cuentas de demostración.
+- No toca las cuentas reales. Las métricas del piloto excluyen las del seed por defecto.
+- Las cuentas de Riot de la demostración son ficticias: la ingesta no las sincroniza y
+  sincronizarlas a mano responde `CUENTA_DE_DEMOSTRACION`.
+
+### Después de la sustentación: apagar para no gastar crédito
+
+**Pausa** (para volver a usarlo, p. ej. si el jurado pide verlo otra vez):
+
+```bash
+bash apps/api/scripts/azure.sh pausar     # detiene la app y Postgres
+bash apps/api/scripts/azure.sh reanudar   # los vuelve a arrancar
+```
+
+Detenidos, se deja de pagar el cómputo; el almacenamiento de Postgres y sus copias se siguen
+cobrando (unos 4 USD/mes). **Azure arranca solo un Postgres detenido a los 7 días**: si la
+pausa es larga, repite `pausar` cada semana o bórralo todo.
+
+**Borrado definitivo** (cuando la tesis esté entregada):
+
+1. Exporta antes lo que necesites: las métricas del piloto (`docs/operacion.md`, «Métricas
+   del piloto») y, si quieres conservar la base, un `pg_dump` (sección anterior).
+2. Borra el grupo de recursos; se lleva la app, el entorno, los registros y Postgres con
+   sus copias. **No se puede deshacer:**
+
+   ```bash
+   az group delete -n proplay-rg
+   ```
+
+3. Comprueba en el portal, **Cost Management**, que el gasto diario baja a 0 al día
+   siguiente.
+4. En Vercel, el proyecto no cuesta nada; si quieres retirarlo, **Settings → Delete
+   Project**. La imagen de `ghcr.io` tampoco cuesta.
 
 ### Desplegar una versión nueva
 

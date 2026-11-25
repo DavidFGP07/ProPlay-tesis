@@ -9,6 +9,7 @@ import {
   PREFIJO_PUUID_SEED,
   correoJugadorSeed,
 } from "../src/utils/datosDePrueba";
+import { contrasenaDeLaDemo } from "../scripts/cargar-demo";
 import {
   COLA_SOLO_DUO,
   PARTIDAS_POR_SINCRONIZACION,
@@ -37,11 +38,12 @@ import {
  *
  * Es idempotente (usa upsert), así que se puede ejecutar varias veces:
  *   npm run db:seed
+ *
+ * Las cuentas usan la contraseña pública del seed sólo en una base local. Para
+ * cualquier otra (producción) hace falta DEMO_CONTRASENA: ver
+ * `npm run demo:cargar` (scripts/cargar-demo.ts).
  */
 const prisma = new PrismaClient();
-
-/** Contraseña común de todas las cuentas de prueba. */
-const PASSWORD_DEMO = "ProPlay123";
 
 /** Generador pseudoaleatorio determinista: el seed siempre produce lo mismo. */
 function crearAleatorio(semilla: number) {
@@ -526,8 +528,10 @@ const NOMBRES_JUGADORES = [
 ];
 
 async function main() {
+  const eleccion = contrasenaDeLaDemo(process.env.DATABASE_URL, process.env.DEMO_CONTRASENA);
+  if ("error" in eleccion) throw new Error(eleccion.error);
   console.log("Sembrando datos de prueba de ProPlay...");
-  const passwordHash = await bcrypt.hash(PASSWORD_DEMO, 10);
+  const passwordHash = await bcrypt.hash(eleccion.contrasena, 10);
   const aleatorio = crearAleatorio(20_260_910);
 
   // ---------------------------------------------------------------- catálogo
@@ -555,7 +559,7 @@ async function main() {
   // ------------------------------------------------------- admin y scout demo
   await prisma.usuario.upsert({
     where: { email: CORREO_ADMIN_SEED },
-    update: {},
+    update: { passwordHash },
     create: {
       email: CORREO_ADMIN_SEED,
       passwordHash,
@@ -567,7 +571,7 @@ async function main() {
 
   await prisma.usuario.upsert({
     where: { email: CORREO_SCOUT_SEED },
-    update: {},
+    update: { passwordHash },
     create: {
       email: CORREO_SCOUT_SEED,
       passwordHash,
@@ -582,7 +586,7 @@ async function main() {
   for (const equipo of EQUIPOS) {
     const usuario = await prisma.usuario.upsert({
       where: { email: equipo.email },
-      update: {},
+      update: { passwordHash },
       create: {
         email: equipo.email,
         passwordHash,
@@ -620,7 +624,7 @@ async function main() {
 
     const usuario = await prisma.usuario.upsert({
       where: { email },
-      update: {},
+      update: { passwordHash },
       create: {
         email,
         passwordHash,
@@ -942,7 +946,7 @@ async function main() {
   console.log(`  · ${vectores} vectores de perfil (versión ${PERFIL_VECTOR_VERSION})`);
 
   console.log(
-    `\nListo. Todas las cuentas de prueba usan la contraseña ${PASSWORD_DEMO}\n` +
+    `\nListo. Todas las cuentas de prueba usan ${eleccion.publica ? `la contraseña ${eleccion.contrasena}` : "la contraseña de DEMO_CONTRASENA"}\n` +
       "  admin@proplay.gg (ADMIN) · scout@proplay.gg (SCOUT)\n" +
       "  equipo@caribeesports.gg (EQUIPO) · jugador1@proplay.gg … jugador21@proplay.gg (JUGADOR)",
   );
