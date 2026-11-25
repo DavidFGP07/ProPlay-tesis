@@ -47,7 +47,7 @@ pruebas propia (`proplay_test`).
 
 - **Sprint 4:** el sandbox de Python (4.2; el cálculo es determinista en TypeScript, decisión
   «Calculador exacto») y retirar el puente de demostración (4.12).
-- **Despliegue** (2.13): nunca se ha desplegado. Sin URL pública tampoco se puede pedir la
+- **Despliegue** (2.13): preparado para Azure y Vercel, pero todavía sin recursos creados. Sin URL pública tampoco se puede pedir la
   clave de producción de Riot (0.1).
 - **Habilidades y endorsements (2.2) y ajustes de privacidad**: pasan a trabajo futuro
   (`docs/decisiones.md`, «Habilidades y ajustes de privacidad, a trabajo futuro»). La
@@ -139,7 +139,7 @@ Twitch, YouTube y las demás plataformas pasan a trabajo futuro; sus esqueletos 
 
 | # | Tarea |
 |---|---|
-| 2.13 | **Ensayo de despliegue real**: API en Railway o Render, cliente en Vercel, base gestionada. No dejarlo para la última semana<br>**Pendiente:** la aplicación no se ha desplegado nunca. |
+| 2.13 | **Ensayo de despliegue real**: API en Azure Container Apps (con los créditos de Azure for Students), cliente en Vercel, base gestionada (Azure Database for PostgreSQL). No dejarlo para la última semana<br>**En curso:** preparado el despliegue (`apps/api/scripts/azure.sh`, imagen en `ghcr.io` desde el flujo «Imagen de la API», `vercel.json` en la raíz con el rewrite de `/api`; procedimiento en `docs/operacion.md`, «Despliegue en Azure»). Falta crear los recursos y publicar la web. |
 | 2.14 | Variables de entorno y secretos de producción, con rotación documentada<br>**Pendiente.** Las variables están documentadas (README, «Variables de entorno»); de la rotación, sólo la renovación diaria de la clave de Riot (`docs/operacion.md`). |
 
 ---

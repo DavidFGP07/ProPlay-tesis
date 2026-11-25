@@ -6,8 +6,8 @@
 #
 #   docker build -f apps/api/Dockerfile -t proplay-api .
 #
-# En Railway o Render: root directory = raíz del repo,
-# Dockerfile path = apps/api/Dockerfile.
+# En el despliegue la construye el flujo «Imagen de la API» de GitHub
+# Actions y la publica en ghcr.io (docs/operacion.md, «Despliegue en Azure»).
 # ---------------------------------------------------------------------------
 
 FROM node:22-alpine AS base

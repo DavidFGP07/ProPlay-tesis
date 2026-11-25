@@ -2,11 +2,100 @@
 
 Procedimientos que se ejecutan a mano sobre un entorno, fuera de la aplicación.
 
-> **La aplicación no se ha desplegado todavía** (tarea 2.13 del plan). Los pasos «en el
-> servidor» describen cómo se hará con la imagen de `apps/api/Dockerfile`; no se han
-> probado en una plataforma real.
+Los pasos «en el servidor» se refieren al despliegue de Azure descrito en la primera
+sección: la consola del contenedor se abre con `bash apps/api/scripts/azure.sh consola`.
 
 ---
+
+## Despliegue en Azure
+
+Tarea 2.13. La API, con su Redis, va en Azure Container Apps; la base, en Azure Database for
+PostgreSQL; la web, en Vercel, que reenvía `/api/*` a la API. El porqué, en
+`docs/decisiones.md`, «Despliegue en Azure y Vercel».
+
+### Lo que cuesta
+
+Con la suscripción **Azure for Students** (100 USD de crédito, sin tarjeta: al agotarse, los
+recursos se detienen y no se cobra nada):
+
+| Recurso | Tamaño | Coste aproximado |
+| --- | --- | --- |
+| PostgreSQL flexible | B1ms, 32 GB, copias de 7 días | 0 USD si la oferta incluye las 750 h/mes gratis de B1ms; si no, unos 15 USD/mes |
+| Container App | 0,75 vCPU y 1,5 GiB en total, una réplica siempre encendida | 10-25 USD/mes según el tráfico (la réplica inactiva se cobra a tarifa reducida) |
+| Log Analytics | Registros de la API | 0 USD dentro de los 5 GB/mes gratis |
+| Imagen | `ghcr.io` (GitHub) | 0 USD |
+| Web | Vercel Hobby | 0 USD |
+
+Unos **15-40 USD al mes**: el crédito alcanza para el piloto y la sustentación. Lo consumido se
+ve en el portal, **Cost Management**. Al terminar, `az group delete -n proplay-rg` lo borra todo
+(antes, exporta las métricas del piloto).
+
+### Primera vez
+
+1. **Imagen.** Fusiona en `main`: cuando el CI termina en verde, el flujo «Imagen de la API»
+   publica `ghcr.io/davidfgp07/proplay-api`. La primera vez el paquete nace **privado**: en
+   GitHub, tu perfil → **Packages** → `proplay-api` → **Package settings** → **Change
+   visibility** → **Public**. Azure lo descarga sin credenciales; el código ya es público.
+2. **Sesión de Azure.** Entra en <https://portal.azure.com> con la cuenta de estudiante y abre
+   **Cloud Shell** (Bash), que ya trae `az`; o instala la CLI en tu equipo y ejecuta `az login`.
+3. **Crear.** Desde la raíz del repositorio (en Cloud Shell, clónalo antes):
+
+   ```bash
+   CORS_ORIGIN=https://<tu-proyecto>.vercel.app bash apps/api/scripts/azure.sh crear
+   ```
+
+   Pide sin eco la clave de Anthropic y la de Riot (Enter deja una vacía; se añaden luego con
+   `secreto`). Genera `JWT_SECRET`, `JWT_REFRESH_SECRET`, `ENCRYPTION_KEY` y la contraseña de
+   Postgres, y las guarda sólo como secretos de la Container App. Tarda unos 15 minutos y
+   termina imprimiendo el dominio `*.azurecontainerapps.io`. Si la suscripción no permite
+   `eastus2`, repite con `REGION=<otra>`.
+4. **Comprobar.** `bash apps/api/scripts/azure.sh estado` debe mostrar `/health` con
+   `"status": "ok"` (Postgres y Redis `"up"`). Si no arranca, los registros están en el portal →
+   Container App `proplay-api` → **Log stream**.
+5. **Web.** Pon el dominio en el primer rewrite de `vercel.json`
+   (`https://<dominio>/api/:ruta*`) con un PR. Luego, en <https://vercel.com>, **Add New →
+   Project**, importa el repositorio y despliega sin cambiar ningún ajuste.
+6. **CORS.** Si el dominio final de Vercel no es el que pusiste en `CORS_ORIGIN`:
+
+   ```bash
+   bash apps/api/scripts/azure.sh variable CORS_ORIGIN https://<dominio-final>.vercel.app
+   ```
+
+7. **Administrador.** Regístrate en la web y promueve tu cuenta (sección siguiente, «En el
+   servidor desplegado»).
+
+### Desplegar una versión nueva
+
+Fusiona en `main`, espera a que el flujo «Imagen de la API» termine y:
+
+```bash
+bash apps/api/scripts/azure.sh actualizar
+```
+
+La web se redespliega sola en Vercel con cada push a `main`. Las migraciones se aplican al
+arrancar el contenedor. Para volver atrás, `actualizar <sha>` con el SHA de un commit
+anterior de `main`.
+
+### Copias de seguridad y restauración
+
+Azure hace copias automáticas del servidor de Postgres y permite restaurarlo a cualquier
+momento de los **últimos 7 días**. La restauración crea un servidor nuevo:
+
+```bash
+az postgres flexible-server restore -g proplay-rg --name proplay-db-restaurado \
+  --source-server <servidor-original> --restore-time "2026-12-01T12:00:00Z"
+```
+
+Después, apunta la API al servidor nuevo con
+`bash apps/api/scripts/azure.sh secreto DATABASE_URL` (la misma URL cambiando el nombre del
+servidor). Redis no tiene copia: sólo guarda cachés y la cola, que se reconstruyen.
+
+Antes de una operación arriesgada, un volcado a mano desde tu equipo (abre antes tu IP en el
+portal: servidor de Postgres → **Networking** → **Add current client IP address**):
+
+```bash
+pg_dump "<DATABASE_URL>" --format=custom --file proplay-$(date +%F).dump
+```
 
 ## Alta del primer administrador
 
@@ -37,8 +126,7 @@ npm run admin:promover -w api -- persona@dominio.com
 ### En el servidor desplegado
 
 La imagen de producción no trae `tsx` ni el código fuente, sólo el compilado. Abre
-una consola en el contenedor de la API (la «shell» o el comando de una sola vez de
-Railway o Render), que ya tiene `DATABASE_URL` y el resto de variables, y ejecuta
+una consola en el contenedor de la API (`bash apps/api/scripts/azure.sh consola`), que ya tiene `DATABASE_URL` y el resto de variables, y ejecuta
 desde `/app`:
 
 ```bash
@@ -129,9 +217,9 @@ la API la marca como caducada, **pausa la cola** (no gasta reintentos), deja en 
    **Regenerate API Key**.
 2. Pon la clave nueva en `RIOT_API_KEY`:
    - en local, en `apps/api/.env`;
-   - en Railway o Render, en las variables del servicio de la API.
-3. **Reinicia la API** (en local, para y vuelve a lanzar `npm run dev`; en la plataforma, el
-   cambio de variable ya redespliega).
+   - en Azure, con `bash apps/api/scripts/azure.sh secreto RIOT_API_KEY`.
+3. **Reinicia la API** (en local, para y vuelve a lanzar `npm run dev`; en Azure, `secreto`
+   ya redespliega).
 4. Comprueba con `npm run ingesta:estado -w api` que dice «Clave de Riot: válida» y
    «Cola de ingesta: activa». Al arrancar con una clave distinta de la caducada, la cola se
    reanuda sola y procesa lo que quedó pendiente.
@@ -165,7 +253,7 @@ explicación determinista: el ranking y el puesto nunca dependen de él. El porq
 1. Crea una clave en la consola de Anthropic (<https://platform.claude.com>, **API Keys**).
 2. Ponla en `ANTHROPIC_API_KEY`:
    - en local, en `apps/api/.env`;
-   - en Railway o Render, en las variables del servicio de la API.
+   - en Azure, con `bash apps/api/scripts/azure.sh secreto ANTHROPIC_API_KEY`.
 
    **Nunca** en `apps/web/.env` ni en ninguna variable `VITE_*`: se empaquetaría en el
    cliente y sería pública. El registro de la API la oculta.

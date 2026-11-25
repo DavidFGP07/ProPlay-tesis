@@ -8,6 +8,8 @@ coverage/
 .env
 .env.*
 !.env.example
+# Build de producción de la web: sin secretos (ver el archivo).
+!apps/web/.env.production
 
 .DS_Store
 *.log

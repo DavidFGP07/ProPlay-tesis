@@ -10,8 +10,8 @@ import { z } from "zod";
  * romperse más tarde en tiempo de ejecución.
  */
 
-// En local las variables vienen de apps/api/.env; en producción (Railway,
-// Render, CI) las inyecta la plataforma y el archivo no existe.
+// En local las variables vienen de apps/api/.env; en producción (Azure
+// Container Apps, CI) las inyecta la plataforma y el archivo no existe.
 try {
   process.loadEnvFile(path.resolve(process.cwd(), ".env"));
 } catch {
@@ -40,7 +40,7 @@ function esDireccionOSubred(valor: string): boolean {
  * sin proxy delante, porque cualquiera puede escribir esa cabecera y, si se le
  * hiciera caso, saltarse los límites por IP con sólo cambiarla.
  *
- * Admite el número de proxies delante de la API (1 en Railway o Render) o una
+ * Admite el número de proxies delante de la API (2 en Azure detrás del proxy de Vercel) o una
  * lista separada por comas de direcciones, subredes CIDR y los nombres
  * loopback, linklocal y uniquelocal. `true` se rechaza: confiaría en
  * cualquier cliente y equivale a no tener límite por IP.
@@ -187,7 +187,7 @@ export const envSchema = z.object({
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["TRUST_PROXY"],
-      message: "TRUST_PROXY es obligatoria en producción (1 detrás de Railway o Render, 0 sin proxy)",
+      message: "TRUST_PROXY es obligatoria en producción (2 en Azure detrás de Vercel, 1 con un solo proxy, 0 sin proxy)",
     });
   }
 });

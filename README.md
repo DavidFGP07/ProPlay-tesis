@@ -381,7 +381,7 @@ falta una obligatoria. El cliente lee las suyas en `apps/web/src/lib/env.ts`. Lo
 | `JWT_SECRET`, `JWT_REFRESH_SECRET` | **sí** | — | Firmas de los tokens; al menos 32 caracteres y distintos |
 | `ENCRYPTION_KEY` | **sí** | — | Clave AES-256-GCM (64 caracteres hexadecimales) para los tokens de las cuentas de juego |
 | `CORS_ORIGIN` | no | `http://localhost:5173` | Origen (o lista) autorizado |
-| `TRUST_PROXY` | **en producción** | sin proxy | Proxies delante de la API (ver «Despliegue») |
+| `TRUST_PROXY` | **en producción** | sin proxy | Proxies delante de la API: `2` en Azure detrás de Vercel (ver «Despliegue») |
 | `LIMITE_GLOBAL_PETICIONES` | no | `300` | Peticiones por IP cada 15 minutos para toda la API (`/auth/logout` no cuenta). Para la demostración en local, muy alto (p. ej. `100000`): todo sale de la misma IP |
 | `RIOT_API_KEY` | no | — | Clave de la API de Riot; sin ella, lo de Riot responde `503 RIOT_NO_DISPONIBLE` |
 | `RIOT_LIMITES` | no | `20:1,100:120` | Ventanas de cuota de la clave, `límite:segundos` |
@@ -439,74 +439,90 @@ borran al terminar. La base de pruebas no lleva los datos del seed.
 
 Cada app se despliega por separado aunque vivan en el mismo repositorio.
 
-### API en Railway o Render (Docker)
+La API va en **Azure Container Apps** con **Azure Database for PostgreSQL** y la
+web en **Vercel**, que además reenvía `/api/*` a la API: el navegador sólo ve el
+dominio de Vercel. El procedimiento paso a paso, con los costes, está en
+[docs/operacion.md](docs/operacion.md), «Despliegue en Azure»; el porqué, en
+`docs/decisiones.md`, «Despliegue en Azure y Vercel».
 
-> **Aún no se ha desplegado nunca** (tarea 2.13 del plan). El worker y el
-> planificador de la ingesta de Riot corren **dentro del proceso de la API**
-> (`apps/api/src/server.ts`, `INGESTA_ACTIVA`): en un plan que suspenda el
-> servicio por inactividad, la sincronización periódica se detiene mientras
-> duerme. Hace falta además un Postgres gestionado con la extensión `pgvector`
-> y un Redis.
+```
+navegador ──► Vercel (web estática + rewrite /api/*) ──► Azure Container Apps
+                                                          ├─ contenedor api (Express, worker de ingesta)
+                                                          └─ contenedor redis (localhost:6379)
+                                                                │
+                                                     Azure Database for PostgreSQL (pgvector)
+```
+
+### API en Azure (Docker)
 
 El `Dockerfile` es multi-stage sobre `node:22-alpine`, corre como usuario no
-root y su `CMD` aplica las migraciones antes de arrancar el servidor.
-
-**El contexto de build es la raíz del monorepo, no `apps/api`**, porque la
-imagen necesita `packages/shared`. En la configuración del servicio:
-
-| Ajuste | Valor |
-| --- | --- |
-| Root directory | `.` (la raíz del repositorio) |
-| Dockerfile path | `apps/api/Dockerfile` |
-| Puerto | `3000` (o el que inyecte la plataforma en `PORT`) |
-
-En local se construye igual:
+root y su `CMD` aplica las migraciones antes de arrancar el servidor. **El
+contexto de build es la raíz del monorepo, no `apps/api`**, porque la imagen
+necesita `packages/shared`:
 
 ```bash
 docker build -f apps/api/Dockerfile -t proplay-api .
 ```
 
-Variables de entorno que hay que definir en el servicio: `DATABASE_URL`,
-`REDIS_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `ENCRYPTION_KEY`,
-`CORS_ORIGIN` (el dominio de Vercel), `NODE_ENV=production`, `TRUST_PROXY` y
-`RIOT_API_KEY` (ver «Integración con la API de Riot Games»); con una clave de
-producción, también `RIOT_LIMITES`. La lista completa está en
-[Variables de entorno](#variables-de-entorno).
+No hace falta construirla a mano: el flujo `.github/workflows/imagen-api.yml`
+la publica en `ghcr.io/davidfgp07/proplay-api` (etiquetas `latest` y el SHA)
+cada vez que el CI de `main` termina en verde. Azure se maneja con
+`apps/api/scripts/azure.sh`:
 
-`TRUST_PROXY` es el número de proxies que hay delante de la API: `1` en
-Railway o Render, uno más por cada capa añadida (una CDN, por ejemplo) y `0`
-si la API recibe las conexiones directamente. En producción es obligatoria y
-la API no arranca sin ella. Si se queda corta, todos los anónimos comparten la
-IP del proxy y el mismo cupo de los límites; si sobra, cualquiera puede
-falsear `X-Forwarded-For` y saltarse el límite por IP.
+| Comando | Qué hace |
+| --- | --- |
+| `bash apps/api/scripts/azure.sh crear` | Una vez: Postgres, entorno y la Container App, con secretos nuevos |
+| `bash apps/api/scripts/azure.sh actualizar` | Despliega la última imagen de `main` |
+| `bash apps/api/scripts/azure.sh secreto RIOT_API_KEY` | Cambia un secreto (lo pide sin eco) y redespliega |
+| `bash apps/api/scripts/azure.sh variable CORS_ORIGIN https://…` | Cambia una variable sin secreto |
+| `bash apps/api/scripts/azure.sh estado` | URL, revisión activa y `/health` |
+| `bash apps/api/scripts/azure.sh consola` | Shell en el contenedor (alta del administrador, métricas…) |
 
-El primer administrador se da de alta después del despliegue, desde una consola
+La Container App tiene **una sola réplica fija**: el worker y el planificador
+de la ingesta de Riot corren dentro del proceso de la API (`INGESTA_ACTIVA`) y
+no deben duplicarse ni dormirse. Redis va en un contenedor de acompañamiento
+sin persistencia: si se reinicia, se pierden las cachés, los desafíos de
+vinculación en curso y la cola, que el planificador vuelve a llenar.
+
+`TRUST_PROXY` es el número de proxies que hay delante de la API: `2` en este
+despliegue (Vercel y la entrada de Container Apps), uno más por cada capa
+añadida y `0` si la API recibe las conexiones directamente. En producción es
+obligatoria y la API no arranca sin ella. Si se queda corta, todos los
+anónimos comparten la IP del proxy y el mismo cupo de los límites; si sobra,
+cualquiera puede falsear `X-Forwarded-For` y saltarse el límite por IP.
+
+El primer administrador se da de alta después del despliegue, desde la consola
 del contenedor: ver [docs/operacion.md](docs/operacion.md). El seed nunca se
 ejecuta en producción.
 
 ### Web en Vercel
 
-Aquí es donde más se falla con monorepos de workspaces. La configuración exacta:
+La configuración vive en `vercel.json`, **en la raíz del repositorio** (Vercel
+lo lee del *Root Directory* del proyecto, que es la raíz): instala con
+`npm ci`, construye con `npm run build -w web` y sirve `apps/web/dist`. Al
+importar el repositorio en Vercel no hay que cambiar ningún ajuste ni definir
+variables: `apps/web/.env.production` (versionado, sin secretos) fija
+`VITE_API_URL=/api/v1` y `VITE_DEMO_DATA=false`.
 
-| Ajuste | Valor |
-| --- | --- |
-| Root directory | `.` (la raíz del repositorio, **no** `apps/web`) |
-| Install command | `npm install` |
-| Build command | `npm run build -w web` |
-| Output directory | `apps/web/dist` |
-| Variable de entorno | `VITE_API_URL=https://<tu-api>/api/v1` |
+`vercel.json` tiene dos rewrites, en este orden:
 
-`apps/web/vercel.json` incluye el rewrite de todas las rutas a `index.html`
-para que React Router funcione con recarga directa de una URL profunda.
+1. `/api/:ruta*` → la API de Azure (el dominio `*.azurecontainerapps.io` que
+   imprime `azure.sh crear`);
+2. todo lo demás → `index.html`, para que React Router funcione al recargar
+   una URL profunda.
 
 `npm run build -w web` no necesita compilar `packages/shared` antes: Vite
 resuelve `@proplay/shared` al TypeScript fuente mediante un alias.
 
 ### CORS y cookies en producción
 
-La web y la API viven en dominios distintos, así que:
+Con el rewrite, la web y la API comparten dominio: la cookie httpOnly del
+refresh token es del mismo sitio y ningún navegador la bloquea como cookie de
+terceros (Safari lo haría si la web llamara directamente a
+`*.azurecontainerapps.io`). Aun así:
 
-- el backend lee `CORS_ORIGIN` y responde con `credentials: true`;
+- el backend lee `CORS_ORIGIN` (el dominio de Vercel) y responde con
+  `credentials: true`;
 - la cookie del refresh token se emite con `SameSite=None; Secure` cuando
   `NODE_ENV=production`;
 - el frontend nunca lleva URLs escritas a mano: todo sale de `VITE_API_URL`.
