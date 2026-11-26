@@ -22,10 +22,12 @@
 #   - Un entorno de Container Apps (plan de consumo) con su Log Analytics.
 #   - La Container App de la API: una réplica fija (el worker de la ingesta vive en el
 #     proceso) con dos contenedores, la API y un Redis de acompañamiento en localhost.
-set -euo pipefail
+set -Eeuo pipefail
+# Sin esto, un fallo dentro de $(...) termina el script sin decir dónde.
+trap 'echo "Error: falló la línea $LINENO de azure.sh: $BASH_COMMAND" >&2' ERR
 
 GRUPO="${GRUPO:-proplay-rg}"
-REGION="${REGION:-eastus2}"
+REGION="${REGION:-northcentralus}"
 ENTORNO="${ENTORNO:-proplay-env}"
 APP="${APP:-proplay-api}"
 IMAGEN="${IMAGEN:-ghcr.io/davidfgp07/proplay-api}"
@@ -70,8 +72,14 @@ nombre_secreto() {
 pedir() {
   local variable="$1" descripcion="$2" valor="${!1:-}"
   if [[ -z "$valor" && -t 0 ]]; then
-    read -rsp "$descripcion (Enter para dejarla vacía): " valor
+    # read falla si la entrada se corta sin Enter (Ctrl-D, pegado sin salto):
+    # se avisa en vez de abortar en silencio.
+    if ! read -rsp "$descripcion (pégala y pulsa Enter; Enter sola para dejarla vacía): " valor; then
+      echo >&2
+      falla "no se leyó $variable (¿faltó pulsar Enter?). Vuelve a lanzar el comando."
+    fi
     echo >&2
+    if [[ -n "$valor" ]]; then echo "$variable recibida (${#valor} caracteres)." >&2; else echo "$variable vacía." >&2; fi
   fi
   printf '%s' "$valor"
 }
@@ -90,7 +98,7 @@ crear() {
     az provider register -n "$proveedor" --wait -o none
   done
 
-  echo "Grupo de recursos $GRUPO en $REGION…"
+  echo "Grupo de recursos ${GRUPO} en ${REGION}…"
   az group create -n "$GRUPO" -l "$REGION" -o none
 
   # Contraseña nueva en cada creación de la app: sólo se guarda dentro de su DATABASE_URL.
@@ -117,13 +125,16 @@ crear() {
   # la extensión está en la lista permitida del servidor.
   az postgres flexible-server parameter set -g "$GRUPO" --server-name "$postgres" \
     --name azure.extensions --value VECTOR -o none
-  if ! az postgres flexible-server db show -g "$GRUPO" -s "$postgres" -d "$BASE_PG" >/dev/null 2>&1; then
-    az postgres flexible-server db create -g "$GRUPO" -s "$postgres" -d "$BASE_PG" -o none
+  if ! az postgres flexible-server db show -g "$GRUPO" -s "$postgres" -n "$BASE_PG" >/dev/null 2>&1; then
+    az postgres flexible-server db create -g "$GRUPO" -s "$postgres" -n "$BASE_PG" -o none
   fi
 
   if ! az containerapp env show -n "$ENTORNO" -g "$GRUPO" >/dev/null 2>&1; then
-    echo "Creando el entorno de Container Apps $ENTORNO…"
-    az containerapp env create -n "$ENTORNO" -g "$GRUPO" -l "$REGION" -o none
+    echo "Creando el entorno de Container Apps ${ENTORNO}…"
+    # WorkloadProfiles (perfil Consumption, mismo precio): el modo Express que la CLI
+    # crea por defecto no admite el contenedor de Redis al lado de la API.
+    az containerapp env create -n "$ENTORNO" -g "$GRUPO" -l "$REGION" \
+      --environment-mode WorkloadProfiles --logs-destination log-analytics -o none
   fi
   local entorno_id
   entorno_id="$(az containerapp env show -n "$ENTORNO" -g "$GRUPO" --query id -o tsv)"
@@ -152,6 +163,7 @@ resourceGroup: ${GRUPO}
 type: Microsoft.App/containerApps
 properties:
   managedEnvironmentId: ${entorno_id}
+  workloadProfileName: Consumption
   configuration:
     activeRevisionsMode: Single
     ingress:
@@ -296,9 +308,9 @@ demo() {
   [[ -n "$url" ]] || falla "la app no tiene el secreto database-url."
 
   echo "Abriendo Postgres a tu IP mientras dura la carga…"
-  trap 'az postgres flexible-server firewall-rule delete -g "$GRUPO" -n "$POSTGRES_DEMO" --rule-name "$REGLA_DEMO" --yes -o none && echo "Regla temporal del firewall borrada."' EXIT
-  az postgres flexible-server firewall-rule create -g "$GRUPO" -n "$POSTGRES_DEMO" \
-    --rule-name "$REGLA_DEMO" --start-ip-address "$ip" --end-ip-address "$ip" -o none
+  trap 'az postgres flexible-server firewall-rule delete -g "$GRUPO" -s "$POSTGRES_DEMO" -n "$REGLA_DEMO" --yes -o none && echo "Regla temporal del firewall borrada."' EXIT
+  az postgres flexible-server firewall-rule create -g "$GRUPO" -s "$POSTGRES_DEMO" \
+    -n "$REGLA_DEMO" --start-ip-address "$ip" --end-ip-address "$ip" -o none
 
   (cd "$(dirname "$0")/.." && DATABASE_URL="$url" npm run demo:cargar)
 }
@@ -306,11 +318,18 @@ demo() {
 # Detiene la app y el servidor de Postgres: deja de cobrarse el cómputo (el
 # almacenamiento de Postgres y sus copias, unos 4 USD/mes, se siguen cobrando).
 # Azure vuelve a arrancar solo un Postgres detenido a los 7 días.
+# La CLI no trae «az containerapp stop/start»: se llama a la acción de la API de Azure.
+accion_app() {
+  local id
+  id="$(az containerapp show -n "$APP" -g "$GRUPO" --query id -o tsv)"
+  az rest --method post --url "https://management.azure.com${id}/${1}?api-version=2025-01-01" -o none
+}
+
 pausar() {
   requisitos
   local postgres
   postgres="$(nombre_postgres)"
-  az containerapp stop -n "$APP" -g "$GRUPO" -o none
+  accion_app stop
   az postgres flexible-server stop -g "$GRUPO" -n "$postgres" -o none
   echo "App y Postgres detenidos. Para volver: azure.sh reanudar."
 }
@@ -320,7 +339,7 @@ reanudar() {
   local postgres
   postgres="$(nombre_postgres)"
   az postgres flexible-server start -g "$GRUPO" -n "$postgres" -o none
-  az containerapp start -n "$APP" -g "$GRUPO" -o none
+  accion_app start
   estado
 }
 

@@ -47,8 +47,15 @@ ve en el portal, **Cost Management**. Al terminar, `az group delete -n proplay-r
    Pide sin eco la clave de Anthropic y la de Riot (Enter deja una vacía; se añaden luego con
    `secreto`). Genera `JWT_SECRET`, `JWT_REFRESH_SECRET`, `ENCRYPTION_KEY` y la contraseña de
    Postgres, y las guarda sólo como secretos de la Container App. Tarda unos 15 minutos y
-   termina imprimiendo el dominio `*.azurecontainerapps.io`. Si la suscripción no permite
-   `eastus2`, repite con `REGION=<otra>`.
+   termina imprimiendo el dominio `*.azurecontainerapps.io`.
+   - La región por defecto es `northcentralus`: la suscripción Azure for Students de Uninorte
+     sólo admite spaincentral, westus2, chilecentral, northcentralus y francecentral. Otra se
+     elige con `REGION=<región>`.
+   - Las claves se piden con la entrada oculta: en el Terminal de macOS aparece un 🔑 y no se
+     ve nada al pegar. Pega **una vez** y pulsa Enter; el script confirma cuántos caracteres
+     recibió. El panel de terminal de la app de Claude no admite esta entrada: usa el Terminal.
+   - El entorno se crea en modo `WorkloadProfiles` (perfil Consumption). El modo Express, el
+     predeterminado de la CLI 2.93, no admite el contenedor de Redis junto a la API.
 4. **Comprobar.** `bash apps/api/scripts/azure.sh estado` debe mostrar `/health` con
    `"status": "ok"` (Postgres y Redis `"up"`). Si no arranca, los registros están en el portal →
    Container App `proplay-api` → **Log stream**.

@@ -7,7 +7,7 @@
   "rewrites": [
     {
       "source": "/api/:ruta*",
-      "destination": "https://proplay-api.reemplazar-por-el-fqdn-de-azure.invalid/api/:ruta*"
+      "destination": "https://proplay-api.salmonmushroom-dd7aeaa8.northcentralus.azurecontainerapps.io/api/:ruta*"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
